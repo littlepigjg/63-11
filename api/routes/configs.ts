@@ -1,10 +1,17 @@
 import { Router } from 'express';
 import { configService } from '../services/ConfigService.js';
+import { healthCheckService } from '../services/HealthCheckService.js';
 
 const router = Router();
 
 router.get('/:projectId/envs/:envName', async (req, res) => {
   try {
+    const withHealth = req.query.withHealth === 'true';
+    if (withHealth) {
+      const configs = await healthCheckService.getConfigWithHealthStatus(req.params.projectId, req.params.envName);
+      res.json({ success: true, data: configs });
+      return;
+    }
     const configs = await configService.getEnvironmentConfigs(req.params.projectId, req.params.envName);
     if (!configs) {
       res.status(404).json({ success: false, error: 'Environment not found' });

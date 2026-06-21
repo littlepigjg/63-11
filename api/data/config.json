@@ -3,8 +3,8 @@
   "projects": [
     {
       "id": "proj_3eaec566",
-      "name": "????",
-      "description": "????????",
+      "name": "示例项目",
+      "description": "配置管理系统示例项目",
       "createdAt": "2026-06-17T03:42:29.448Z",
       "updatedAt": "2026-06-17T03:43:20.259Z",
       "environments": [
@@ -12,21 +12,80 @@
           "name": "development",
           "configs": [
             {
-              "key": "DB_HOST",
-              "value": "localhost",
-              "description": "?????",
+              "key": "DB_CONNECTION",
+              "value": "mysql://localhost:3306/testdb",
+              "description": "MySQL数据库连接字符串",
               "encrypted": false,
+              "healthCheck": {
+                "enabled": true,
+                "checkerType": "database",
+                "checkInterval": 300000,
+                "timeout": 5000
+              },
+              "updatedAt": "2026-06-17T03:43:09.216Z",
+              "updatedBy": "admin"
+            },
+            {
+              "key": "API_ENDPOINT",
+              "value": "https://httpbin.org/status/200",
+              "description": "后端API接口地址",
+              "encrypted": false,
+              "healthCheck": {
+                "enabled": true,
+                "checkerType": "http",
+                "checkInterval": 300000,
+                "timeout": 5000
+              },
+              "updatedAt": "2026-06-17T03:43:09.216Z",
+              "updatedBy": "admin"
+            },
+            {
+              "key": "LOG_FILE_PATH",
+              "value": "C:/Windows/System32",
+              "description": "日志文件存储目录",
+              "encrypted": false,
+              "healthCheck": {
+                "enabled": true,
+                "checkerType": "file",
+                "checkInterval": 300000,
+                "timeout": 5000,
+                "customParams": {
+                  "checkType": "directory"
+                }
+              },
+              "updatedAt": "2026-06-17T03:43:09.216Z",
+              "updatedBy": "admin"
+            },
+            {
+              "key": "AUTH_SERVICE_URL",
+              "value": "https://auth.example.com/api",
+              "description": "认证服务URL",
+              "encrypted": false,
+              "healthCheck": {
+                "enabled": true,
+                "checkerType": "url",
+                "checkInterval": 300000,
+                "timeout": 5000
+              },
               "updatedAt": "2026-06-17T03:43:09.216Z",
               "updatedBy": "admin"
             },
             {
               "key": "DB_PASSWORD",
               "value": "qZOiHreM/jiCdsbzasUY/5tyKw==",
-              "description": "?????",
+              "description": "数据库密码",
               "encrypted": true,
               "iv": "Ipsuu4jDVPDL2d/o5yFqaA==",
               "tag": "iuhWj4JCdMuUTgeOmlsppw==",
               "updatedAt": "2026-06-17T03:43:20.257Z",
+              "updatedBy": "admin"
+            },
+            {
+              "key": "APP_NAME",
+              "value": "配置管理系统",
+              "description": "应用名称",
+              "encrypted": false,
+              "updatedAt": "2026-06-17T03:43:09.216Z",
               "updatedBy": "admin"
             }
           ]

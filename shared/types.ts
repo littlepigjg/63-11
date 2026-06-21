@@ -1,3 +1,23 @@
+export type HealthStatus = 'healthy' | 'unhealthy' | 'pending' | 'checking';
+
+export type CheckerType = 'database' | 'http' | 'file' | 'url' | 'custom';
+
+export interface HealthCheckResult {
+  status: HealthStatus;
+  error?: string;
+  checkedAt: string;
+  checkerType: CheckerType;
+  responseTime?: number;
+}
+
+export interface HealthCheckConfig {
+  enabled: boolean;
+  checkerType: CheckerType;
+  checkInterval?: number;
+  timeout?: number;
+  customParams?: Record<string, string>;
+}
+
 export interface ConfigItem {
   key: string;
   value: string;
@@ -7,6 +27,8 @@ export interface ConfigItem {
   tag?: string;
   updatedAt: string;
   updatedBy: string;
+  healthCheck?: HealthCheckConfig;
+  healthStatus?: HealthCheckResult;
 }
 
 export interface Environment {

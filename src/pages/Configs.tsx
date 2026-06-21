@@ -1,21 +1,33 @@
 import { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Lock, Download, Upload, FolderPlus, ChevronDown } from 'lucide-react';
+import { Plus, Pencil, Trash2, Lock, Download, Upload, FolderPlus, ChevronDown, CheckCircle2, XCircle, Clock, AlertCircle, RefreshCw, Activity, ShieldCheck, ShieldX } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useProjects, useConfigs } from '@/hooks';
 import PageHeader from '@/components/PageHeader';
 import Badge from '@/components/Badge';
 import Modal from '@/components/Modal';
 import { maskValue, envLabel } from '@/utils/format';
-import type { ConfigItem } from '../../shared/types';
+import type { ConfigItem, HealthCheckResult, HealthStatus, CheckerType } from '../../shared/types';
 
 const DEFAULT_ENVS = ['development', 'testing', 'production'];
 
 export default function Configs() {
   const { selectedProjectId, setSelectedProjectId, selectedEnv, setSelectedEnv } = useAppStore();
   const { projects, createProject } = useProjects();
-  const { configs, addConfig, updateConfig, deleteConfig, loading } = useConfigs({
+  const {
+    configs,
+    addConfig,
+    updateConfig,
+    deleteConfig,
+    loading,
+    checkingKeys,
+    runHealthCheck,
+    runAllHealthChecks,
+    enableHealthCheck,
+    disableHealthCheck,
+  } = useConfigs({
     projectId: selectedProjectId,
     envName: selectedEnv,
+    withHealth: true,
   });
 
   const [showAddModal, setShowAddModal] = useState(false);
@@ -31,8 +43,135 @@ export default function Configs() {
   const [projectDesc, setProjectDesc] = useState('');
   const [envName, setEnvName] = useState('');
   const [showProjectDropdown, setShowProjectDropdown] = useState(false);
+  const [showCheckerModal, setShowCheckerModal] = useState(false);
+  const [selectedConfigForChecker, setSelectedConfigForChecker] = useState<ConfigItem | null>(null);
+  const [checkerType, setCheckerType] = useState<CheckerType>('database');
 
   const currentProject = projects.find((p) => p.id === selectedProjectId);
+
+  const checkerTypes: { value: CheckerType; label: string }[] = [
+    { value: 'database', label: '数据库连接' },
+    { value: 'http', label: 'HTTP 接口' },
+    { value: 'file', label: '文件路径' },
+    { value: 'url', label: 'URL 格式' },
+  ];
+
+  const getHealthStatusIcon = (status?: HealthStatus, isChecking?: boolean) => {
+    if (isChecking || status === 'checking') {
+      return <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />;
+    }
+    switch (status) {
+      case 'healthy':
+        return <CheckCircle2 className="w-4 h-4 text-emerald-400" />;
+      case 'unhealthy':
+        return <XCircle className="w-4 h-4 text-rose-400" />;
+      case 'pending':
+        return <Clock className="w-4 h-4 text-amber-400" />;
+      default:
+        return null;
+    }
+  };
+
+  const getHealthStatusLabel = (status?: HealthStatus) => {
+    switch (status) {
+      case 'healthy':
+        return '正常';
+      case 'unhealthy':
+        return '异常';
+      case 'checking':
+        return '检查中';
+      case 'pending':
+        return '待检查';
+      default:
+        return '未启用';
+    }
+  };
+
+  const getHealthStatusBadge = (config: ConfigItem, isChecking: boolean) => {
+    if (!config.healthCheck?.enabled) {
+      return <Badge variant="default">未检查</Badge>;
+    }
+    if (isChecking || config.healthStatus?.status === 'checking') {
+      return <Badge variant="info">检查中</Badge>;
+    }
+    switch (config.healthStatus?.status) {
+      case 'healthy':
+        return <Badge variant="success">健康</Badge>;
+      case 'unhealthy':
+        return <Badge variant="danger">异常</Badge>;
+      case 'pending':
+        return <Badge variant="warning">待检查</Badge>;
+      default:
+        return <Badge variant="default">未检查</Badge>;
+    }
+  };
+
+  const getRowClass = (config: ConfigItem, isChecking: boolean) => {
+    const baseClass = 'border-b border-[#334155]/50 hover:bg-[#0F172A]/50 transition-colors';
+    if (isChecking || config.healthStatus?.status === 'checking') {
+      return `${baseClass} bg-blue-500/5`;
+    }
+    if (config.healthStatus?.status === 'unhealthy') {
+      return `${baseClass} bg-rose-500/10`;
+    }
+    return baseClass;
+  };
+
+  const getKeyClass = (config: ConfigItem, isChecking: boolean) => {
+    const baseClass = 'font-mono text-sm';
+    if (config.healthStatus?.status === 'unhealthy' && !isChecking) {
+      return `${baseClass} text-rose-400`;
+    }
+    return `${baseClass} text-emerald-400`;
+  };
+
+  const handleEnableHealthCheck = async (config: ConfigItem) => {
+    setSelectedConfigForChecker(config);
+    const detectedType = detectCheckerType(config.key, config.value);
+    if (detectedType) {
+      setCheckerType(detectedType);
+    }
+    setShowCheckerModal(true);
+  };
+
+  const detectCheckerType = (key: string, value: string): CheckerType | null => {
+    const upperKey = key.toUpperCase();
+    
+    if (upperKey.includes('DB') || upperKey.includes('DATABASE') || upperKey.includes('CONN')) {
+      return 'database';
+    }
+    if (upperKey.includes('API') || upperKey.includes('ENDPOINT') || upperKey.includes('SERVICE')) {
+      return 'http';
+    }
+    if (upperKey.includes('PATH') || upperKey.includes('FILE') || upperKey.includes('DIR')) {
+      return 'file';
+    }
+    if (upperKey.includes('URL') || upperKey.includes('LINK') || upperKey.includes('ADDRESS')) {
+      return 'url';
+    }
+    
+    if (value.startsWith('mysql://') || value.startsWith('postgres://') || 
+        value.startsWith('mongodb://') || value.startsWith('redis://')) {
+      return 'database';
+    }
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return 'http';
+    }
+    if (value.startsWith('/') || value.startsWith('./') || /^[a-zA-Z]:[\\/]/.test(value)) {
+      return 'file';
+    }
+    
+    return null;
+  };
+
+  const confirmEnableHealthCheck = async () => {
+    if (!selectedConfigForChecker || !selectedProjectId) return;
+    const result = await enableHealthCheck(selectedConfigForChecker.key, checkerType);
+    if (result) {
+      setShowCheckerModal(false);
+      setSelectedConfigForChecker(null);
+    }
+  };
 
   useEffect(() => {
     if (projects.length > 0 && !selectedProjectId) {
@@ -140,10 +279,27 @@ export default function Configs() {
   const projectEnvs = currentProject?.environments.map((e) => e.name) || [];
   const allEnvs = [...new Set([...DEFAULT_ENVS, ...projectEnvs])];
 
+  const hasUnhealthy = configs.some(c => c.healthStatus?.status === 'unhealthy');
+  const hasHealthChecks = configs.some(c => c.healthCheck?.enabled);
+
   return (
     <div className="animate-slide-in">
       <PageHeader title="配置管理" subtitle="按项目和环境管理配置项" actions={
         <div className="flex items-center gap-2">
+          {hasHealthChecks && (
+            <button 
+              onClick={() => runAllHealthChecks(true)} 
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-[#94A3B8] border border-[#334155] rounded-lg hover:bg-[#334155] transition-colors"
+            >
+              <Activity className="w-4 h-4" /> 全部检查
+            </button>
+          )}
+          {hasUnhealthy && (
+            <div className="flex items-center gap-1 px-2 py-1 text-xs bg-rose-500/15 text-rose-400 rounded-lg">
+              <AlertCircle className="w-3.5 h-3.5" />
+              <span>{configs.filter(c => c.healthStatus?.status === 'unhealthy').length} 个异常</span>
+            </div>
+          )}
           <button onClick={handleExport} className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-[#94A3B8] border border-[#334155] rounded-lg hover:bg-[#334155] transition-colors">
             <Download className="w-4 h-4" /> 导出
           </button>
@@ -202,6 +358,7 @@ export default function Configs() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-[#334155]">
+                <th className="text-left text-xs font-medium text-[#64748B] px-4 py-3 w-8">健康</th>
                 <th className="text-left text-xs font-medium text-[#64748B] px-4 py-3">键名</th>
                 <th className="text-left text-xs font-medium text-[#64748B] px-4 py-3">值</th>
                 <th className="text-left text-xs font-medium text-[#64748B] px-4 py-3">描述</th>
@@ -212,19 +369,60 @@ export default function Configs() {
             <tbody>
               {loading && configs.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12 text-[#64748B] text-sm">加载中...</td>
+                  <td colSpan={6} className="text-center py-12 text-[#64748B] text-sm">加载中...</td>
                 </tr>
               ) : configs.length === 0 || (configs.length === 1 && configs[0].key === '_init') ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12 text-[#64748B] text-sm">此环境下暂无配置项</td>
+                  <td colSpan={6} className="text-center py-12 text-[#64748B] text-sm">此环境下暂无配置项</td>
                 </tr>
               ) : (
                 configs
                   .filter((c) => c.key !== '_init')
-                  .map((config) => (
-                  <tr key={config.key} className="border-b border-[#334155]/50 hover:bg-[#0F172A]/50 transition-colors">
+                  .map((config) => {
+                    const isChecking = checkingKeys.has(config.key);
+                    return (
+                  <tr key={config.key} className={getRowClass(config, isChecking)}>
                     <td className="px-4 py-3">
-                      <span className="font-mono text-sm text-emerald-400">{config.key}</span>
+                      <div className="flex items-center gap-1">
+                        {config.healthCheck?.enabled ? (
+                          <div 
+                            className="relative group cursor-help"
+                            title={config.healthStatus?.error || `${getHealthStatusLabel(config.healthStatus?.status)} · ${config.healthStatus?.checkedAt ? new Date(config.healthStatus.checkedAt).toLocaleString() : '未检查'}`}
+                          >
+                            {getHealthStatusIcon(config.healthStatus?.status, isChecking)}
+                            {config.healthStatus?.responseTime && config.healthStatus.status === 'healthy' && (
+                              <span className="text-xs text-[#64748B] ml-1">{config.healthStatus.responseTime}ms</span>
+                            )}
+                            {config.healthStatus?.status === 'unhealthy' && (
+                              <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-64 p-2 bg-[#0F172A] border border-[#334155] rounded-lg text-xs text-rose-400 shadow-xl">
+                                <div className="font-medium mb-1">检查失败</div>
+                                <div className="text-[#94A3B8]">{config.healthStatus.error}</div>
+                                <div className="text-[#64748B] mt-1">
+                                  检查时间: {new Date(config.healthStatus.checkedAt).toLocaleString()}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => handleEnableHealthCheck(config)}
+                            className="p-1 text-[#475569] hover:text-emerald-400 rounded transition-colors"
+                            title="启用健康检查"
+                          >
+                            <Activity className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className={getKeyClass(config, isChecking)}>{config.key}</span>
+                        {config.healthCheck?.enabled && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#334155] text-[#94A3B8]">
+                            {config.healthCheck.checkerType}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -236,14 +434,44 @@ export default function Configs() {
                     </td>
                     <td className="px-4 py-3 text-sm text-[#64748B]">{config.description || '-'}</td>
                     <td className="px-4 py-3">
-                      {config.encrypted ? (
-                        <Badge variant="warning">已加密</Badge>
-                      ) : (
-                        <Badge variant="success">明文</Badge>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {config.encrypted ? (
+                          <Badge variant="warning">已加密</Badge>
+                        ) : (
+                          <Badge variant="success">明文</Badge>
+                        )}
+                        {getHealthStatusBadge(config, isChecking)}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
+                        {config.healthCheck?.enabled ? (
+                          <button
+                            onClick={() => runHealthCheck(config.key, true)}
+                            disabled={isChecking}
+                            className="p-1.5 text-[#64748B] hover:text-blue-400 rounded transition-colors disabled:opacity-50"
+                            title="手动检查"
+                          >
+                            <RefreshCw className={`w-4 h-4 ${isChecking ? 'animate-spin' : ''}`} />
+                          </button>
+                        ) : null}
+                        {config.healthCheck?.enabled ? (
+                          <button
+                            onClick={() => disableHealthCheck(config.key)}
+                            className="p-1.5 text-[#64748B] hover:text-amber-400 rounded transition-colors"
+                            title="禁用健康检查"
+                          >
+                            <ShieldX className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleEnableHealthCheck(config)}
+                            className="p-1.5 text-[#64748B] hover:text-emerald-400 rounded transition-colors"
+                            title="启用健康检查"
+                          >
+                            <ShieldCheck className="w-4 h-4" />
+                          </button>
+                        )}
                         <button onClick={() => openEditModal(config)} className="p-1.5 text-[#64748B] hover:text-emerald-400 rounded transition-colors">
                           <Pencil className="w-4 h-4" />
                         </button>
@@ -253,7 +481,8 @@ export default function Configs() {
                       </div>
                     </td>
                   </tr>
-                ))
+                );
+                })
               )}
             </tbody>
           </table>
@@ -332,6 +561,64 @@ export default function Configs() {
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={() => setShowEnvModal(false)} className="px-4 py-2 text-sm text-[#64748B] hover:text-[#F1F5F9] transition-colors">取消</button>
             <button onClick={handleAddEnv} className="px-4 py-2 text-sm bg-emerald-500/15 text-emerald-400 rounded-lg hover:bg-emerald-500/25 transition-colors">添加</button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal 
+        open={showCheckerModal} 
+        onClose={() => { setShowCheckerModal(false); setSelectedConfigForChecker(null); }} 
+        title={`启用健康检查: ${selectedConfigForChecker?.key}`}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs text-[#64748B] mb-2">配置值</label>
+            <div className="px-3 py-2 bg-[#0F172A] border border-[#334155] rounded-lg text-sm text-[#94A3B8] font-mono break-all">
+              {selectedConfigForChecker?.encrypted 
+                ? maskValue(selectedConfigForChecker.value) 
+                : selectedConfigForChecker?.value}
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-[#64748B] mb-2">检查器类型</label>
+            <div className="grid grid-cols-2 gap-2">
+              {checkerTypes.map((type) => (
+                <button
+                  key={type.value}
+                  onClick={() => setCheckerType(type.value)}
+                  className={`px-3 py-2 rounded-lg text-sm transition-colors ${
+                    checkerType === type.value
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50'
+                      : 'bg-[#0F172A] text-[#94A3B8] border border-[#334155] hover:border-[#475569]'
+                  }`}
+                >
+                  {type.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="text-xs text-[#64748B] bg-[#0F172A] rounded-lg p-3">
+            <div className="font-medium text-[#94A3B8] mb-1">检查说明：</div>
+            <ul className="space-y-1">
+              <li>• <span className="text-emerald-400">数据库连接</span>：测试数据库服务器的 TCP 连接</li>
+              <li>• <span className="text-blue-400">HTTP 接口</span>：发送 HTTP 请求验证接口可达性</li>
+              <li>• <span className="text-amber-400">文件路径</span>：验证文件或目录是否存在</li>
+              <li>• <span className="text-purple-400">URL 格式</span>：验证 URL 格式是否正确</li>
+            </ul>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button 
+              onClick={() => { setShowCheckerModal(false); setSelectedConfigForChecker(null); }} 
+              className="px-4 py-2 text-sm text-[#64748B] hover:text-[#F1F5F9] transition-colors"
+            >
+              取消
+            </button>
+            <button 
+              onClick={confirmEnableHealthCheck} 
+              className="px-4 py-2 text-sm bg-emerald-500/15 text-emerald-400 rounded-lg hover:bg-emerald-500/25 transition-colors"
+            >
+              启用
+            </button>
           </div>
         </div>
       </Modal>
